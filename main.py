@@ -3,10 +3,15 @@ import mediapipe as mp
 import numpy as np
 from tkinter import filedialog
 import time
+import warnings
+
+# Suprimir advertencias específicas
+warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf")
 
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 tiempo = time.time()
+
 # Función para abrir un archivo desde el buscador de archivos
 def open_file():
     file_path = filedialog.askopenfilename()
@@ -40,6 +45,8 @@ with mp_hands.Hands(
     # Crear una ventana con tamaño autoajustable
     cv2.namedWindow('Hand Detection', cv2.WINDOW_NORMAL)
 
+    prev_point = None  # Punto anterior para dibujar la línea
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -65,26 +72,35 @@ with mp_hands.Hands(
                     mp_drawing.DrawingSpec(color=(255, 0, 255), thickness=2, circle_radius=2)
                 )
 
-                # Obtener las coordenadas del dedo índice (landmark 8) y del meñique (landmark 20)
+                # Obtener las coordenadas del dedo índice (landmark 8), del dedo medio (landmark 12) y del meñique (landmark 20)
                 index_finger_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                index_finger_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
+                middle_finger_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+                middle_finger_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
                 pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
+
                 x_index = int(index_finger_tip.x * frame.shape[1])
                 y_index = int(index_finger_tip.y * frame.shape[0])
-                x_pinky = int(pinky_tip.x * frame.shape[1])
-                y_pinky = int(pinky_tip.y * frame.shape[0])
 
-                # Si es la mano derecha y el dedo índice está hacia arriba y el meñique está abajo, dibujar
-                if hand_label == 'Right' and index_finger_tip.y < pinky_tip.y and pinky_tip.y > 0.5:
-                    # Cambiar el color del trazo a verde
-                    color = (0, 255, 0)
-                    # Dibujar el trazo
-                    cv2.circle(drawing_canvas, (x_index, y_index), 5, color, -1)
-                elif hand_label == 'Right' and index_finger_tip.y > pinky_tip.y and index_finger_tip.y > 0.5:
+                # Verificar si los dedos índice y medio están levantados
+                if hand_label == 'Right' and index_finger_tip.y < index_finger_mcp.y and middle_finger_tip.y < middle_finger_mcp.y:
                     # Cambiar el color del trazo a rosado
                     color = (255, 0, 255)
-                    # Dibujar el trazo
-                    if pinky_tip.y < 0.5:  # Verificar si el meñique está levantado
-                        cv2.circle(drawing_canvas, (x_pinky, y_pinky), 5, color, -1)
+                    # Dibujar el trazo en el lienzo en la posición del dedo índice
+                    if prev_point is not None:
+                        cv2.line(drawing_canvas, prev_point, (x_index, y_index), color, 5)
+                    prev_point = (x_index, y_index)
+                elif hand_label == 'Right' and index_finger_tip.y < index_finger_mcp.y:
+                    color = (0, 255, 0)
+                    if prev_point is not None:
+                        cv2.line(drawing_canvas, prev_point, (x_index, y_index), color, 5)
+                    prev_point = (x_index, y_index)
+                else:
+                    prev_point = None  # Reiniciar el punto anterior si los dedos no están levantados
+
+                if hand_label == 'Left' and abs(index_finger_tip.y - pinky_tip.y) < 0.1:
+                    drawing_canvas.fill(0)  # Rellenar el lienzo con color negro (0, 0, 0)
+                    prev_point = None  # Reiniciar el punto anterior al limpiar el lienzo
 
         # Redimensionar el frame y el lienzo a la mitad del ancho original
         frame_half = cv2.resize(frame, (width // 2, height))
@@ -108,7 +124,6 @@ with mp_hands.Hands(
             break
 
     # Definir la ruta donde se guardará el lienzo
-
     canvas_path = f'lienzo_dibujado{tiempo}.png'
 
     # Guardar el lienzo como una imagen
